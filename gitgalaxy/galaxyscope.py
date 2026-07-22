@@ -389,7 +389,7 @@ def _process_file_worker(rel_path: str) -> Dict[str, Any]:
                     phase_times["4_Lexical_Scan"] = time.perf_counter() - t_prism
 
                 if lang_id not in detector_cache:
-                    from gitgalaxy.core.detector import OpticalDetector
+                    from gitgalaxy.core.detector import StructuralExtractor as OpticalDetector
 
                     detector_cache[lang_id] = OpticalDetector(lang_id, lang_defs, parent_logger=logger)
 
