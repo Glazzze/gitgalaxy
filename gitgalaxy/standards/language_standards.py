@@ -145,7 +145,6 @@ class PrismConfigSchema(TypedDict):
     SHIELD_PATTERN: str
     PYTHON_DOC_PATTERN: str
     PHP_HEREDOC_PATTERN: str
-    PHP_MULTILINE_STRING: str
     POSITIONAL_ANCHORS: set[str]
     THRESHOLDS: dict[str, int]
 
@@ -158,7 +157,6 @@ PRISM_CONFIG: PrismConfigSchema = {
     "SHIELD_PATTERN": r'((?<!\\)"(?:\\.|[^"\\])*"|(?<!\\)\'(?:\\.|[^\'\\])*\'|(?<!\\)`(?:\\.|[^`\\])*`)',
     "PYTHON_DOC_PATTERN": r'(?m)^\s*(?:"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\')',
     "PHP_HEREDOC_PATTERN": r'<<<[ \t]*([\'"]?)([a-zA-Z_]\w*)\1[ \t]*\r?\n[\s\S]*?\n[ \t]*\2;?',
-    "PHP_MULTILINE_STRING": r'(?<!\\)"(?:\\.|[^"\\])*\n(?:\\.|[^"\\])*"|(?<!\\)\'(?:\\.|[^\'\\])*\n(?:\\.|[^\'\\])*\'',
     "POSITIONAL_ANCHORS": {"*", "C", "c", "/", "!"},
     "THRESHOLDS": {"NESTED_PEEL_LIMIT": 500},
 }
@@ -249,7 +247,7 @@ GLOBAL_DL_FRAMEWORKS = re.compile(_IMPORT_WRAPPER.format(names=_DL_FRAMEWORKS_NA
 # 4. LANGUAGE DEFINITIONS (The Structural Signature Matrix)
 # Consumed by: detector.py, language_lens.py, prism.py
 # ------------------------------------------------------------------------------
-LANGUAGE_DEFINITIONS = {
+LANGUAGE_DEFINITIONS: dict[str, Any] = {
     "python": {
         "_meta": {
             "target_version": "Python 3.14",
