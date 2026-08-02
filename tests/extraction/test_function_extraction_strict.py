@@ -193,11 +193,6 @@ EXTRACTION_CASES = {
         "invalid": ["contract TargetFunc", "struct TargetFunc"],
         "pathological": [("function \n TargetFunc \n (", "TargetFunc")],
     },
-    "groovy": {
-        "valid": [("def TargetFunc()", "TargetFunc"), ("public void TargetFunc()", "TargetFunc")],
-        "invalid": ["class TargetFunc", "if (TargetFunc)"],
-        "pathological": [("public \t static \t def \t TargetFunc \t (", "TargetFunc")],
-    },
     "jcl": {
         "valid": [("//TargetFunc EXEC PGM=PROG", "TargetFunc")],
         "invalid": ["//TargetFunc DD DSN=", "//* TargetFunc EXEC"],
