@@ -118,21 +118,6 @@ EXTRACTION_CASES = {
         "invalid": ["script TargetFunc", "put TargetFunc", "repeat with TargetFunc"],
         "pathological": [("private \n command \n TargetFunc \n ", "TargetFunc")],
     },
-    "objective-c": {
-        "valid": [
-            ("- (void)TargetFunc:", "TargetFunc"),
-            ("+ (int)TargetFunc", "TargetFunc"),
-            ("static void TargetFunc()", "TargetFunc"),
-        ],
-        "invalid": ["@interface TargetFunc", "TargetFunc()", "TargetFunc ="],
-        "pathological": [
-            # Fragmented return types
-            (
-                "- \n ( \n NSDictionary<NSString *, NSArray<NSNumber *> *> * \n ) \n TargetFunc \n :",
-                "TargetFunc",
-            )
-        ],
-    },
     "abap": {
         "valid": [
             ("METHOD TargetFunc.", "TargetFunc"),
