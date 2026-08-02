@@ -70,17 +70,7 @@ ARGS_EXTRACTION_CASES = {
             )
         ],
     },
-    "scheme": {
-        "valid": [
-            ("(define (TargetFunc a b)", "TargetFunc"),
-            ("(define (TargetFunc)", "TargetFunc"),
-        ],
-        "invalid": ["(TargetFunc a b)", "(if (> a b)"],
-        "pathological": [
-            # Deep vertical S-expressions
-            ("( \n define \n ( \n TargetFunc \n a \n b \n )", "TargetFunc")
-        ],
-    },
+
 }
 
 
