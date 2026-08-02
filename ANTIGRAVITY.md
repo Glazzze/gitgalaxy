@@ -72,17 +72,17 @@ GitGalaxy scans itself and outputs intelligence to `/docs/gitgalaxy_architecture
 
 ## 7. Extraction Hardening & Adversarial Testing
 
-When tasked with "hardening extraction coverage" or similar testing epics, you must avoid **Self-Consistency Bias** (writing tests that merely pass against the *current implementation* instead of the *actual ground truth*). 
+When tasked with "hardening extraction coverage" or similar testing epics, avoid **Self-Consistency Bias** (writing tests that merely pass against the *current implementation* instead of the *actual ground truth*). Do not cement implementation flaws by writing invalid tests just because the current regex fails. 
 
-To ensure rigorous, adversarial testing:
-1. **Define "Valid" from Ground Truth First**: Before looking at the current regex implementation, determine what syntax is valid by consulting official language documentation, a ground-truth corpus, or other established rules in the same file (e.g. cross-referencing `branch`, `safety`, and `state_mutation` rules to find missing opcodes).
-2. **Do Not Cement Implementation Flaws**: If a structurally valid syntax does not match the current regex, the regex is buggy, NOT the syntax. Never write a negative/invalid test to "prove" the regex correctly ignores it.
-3. **Cross-Rule Validation**: Actively check sibling rules in `language_standards.py`. If `args` extracts registers, make sure it covers the instructions listed in `state_mutation` that mutate those registers.
-4. **Corpus Grepping**: When in doubt about whether a syntax exists or how common it is, `grep` the actual corpus (e.g. in `language-crucible`) to find empirical evidence of the shape and frequency of certain keywords or patterns.
-5. **Multi-Round Adversarial Checks**: 
-   - *Round 1 (Breadth)*: Gather keywords, opcodes, and structures from external docs and sibling rules.
-   - *Round 2 (Regex)*: Check the regex against this gathered ground truth. Identify missing captures and false positives.
-   - *Round 3 (Corpus)*: Verify fixes against real corpus data using `crucible_check.py` to ensure the modifications match reality.
+To ensure rigorous, adversarial testing, structure your work into a strict **5-stage agent pipeline**:
+
+1. **The Linguist (Research Subagent)**: Spawn a `research` subagent to independently research the language's syntax variations, historical changes, and edge cases from official documentation. Define what syntax is "valid" from ground truth first.
+2. **The Red Teamer (Testing Subagent)**: Spawn a secondary subagent to generate adversarial, "deviously evil" `pytest` cases based on the Linguist's research. Keep this agent isolated from the current implementation so they try to break the rules, not validate them.
+3. **The Engineer (Implementation Subagent)**: Spawn a third subagent (or run this stage yourself) to iteratively modify regexes in `language_standards.py` until the Red Teamer's test suite passes. Keep this trial-and-error out of the main context window.
+4. **The QA Auditor (Verification Subagent)**: Once tests pass, have a subagent or yourself run `crucible_check.py` against the real-world corpus. Crucially, **manually verify correctness** by opening source files in `language-crucible` and checking the reported functions/methods to ensure they match real boundaries and aren't just hallucinated noise.
+5. **The Manager (Primary Agent)**: Manage the pipeline, review the final sign-off, handle deterministic CI checks (`ruff`, `mypy`), regenerate golden baselines if necessary, and open the Pull Request with thorough context.
+
+*(Tip: You can use the `/teamwork-preview` slash command to help automate and visualize complex multi-agent teams for large projects).*
 
 ## 8. Submitting Pull Requests
 
@@ -96,3 +96,10 @@ Before submitting a Pull Request, you must run the following deterministic tools
 When generating or submitting a Pull Request for this repository, it is critical to provide comprehensive context for reviewers. 
 - **Always add a thorough description:** Outline the changes, the rationale, and any structural boundaries or tests added. Explain *why* any golden masters changed. Do not leave the PR body blank or sparse.
 - **Add relevant labels:** Ensure the PR has descriptive labels attached so it integrates correctly into the project's tracking and CI processes.
+
+## CI Ruff Audit
+The `ruff-audit.yml` CI job enforces a STRICT EXACT MATCH against `tests/ruff_audit_baseline.json`. 
+This baseline uses the line number as part of the JSON keys (e.g. `"gitgalaxy/core/detector.py:1002: PERF401"`).
+**Important**: Any code edits that add or remove lines will SHIFT the line numbers of subsequent lint violations, causing the ruff audit to fail even if you didn't introduce new violations.
+To fix this, ALWAYS regenerate the baseline before committing if you've added/removed lines in files with pre-existing lint violations:
+`python -c "from tests.ruff_audit import run_ruff_check; import json; json.dump(run_ruff_check(), open('tests/ruff_audit_baseline.json', 'w'), indent=2, sort_keys=True)"`
