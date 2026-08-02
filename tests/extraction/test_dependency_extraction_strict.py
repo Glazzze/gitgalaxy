@@ -1,19 +1,29 @@
 import pytest
 from gitgalaxy.standards.language_standards import LANGUAGE_DEFINITIONS
 
-# ==============================================================================
-# THE GRAVITY LINK GAUNTLET
+# =======================================================================# THE GRAVITY LINK GAUNTLET
 # Proves that the `_dependency_capture` spawner accurately isolates EXACTLY
 # the imported file/module path across major languages, surviving destructuring,
 # aliases, and multi-line formatting without capturing the wrong variables.
-# ==============================================================================
-# ==============================================================================
-# THE GRAVITY LINK GAUNTLET (37-LANGUAGE MEGA SUITE)
+# =======================================================================# =======================================================================# THE GRAVITY LINK GAUNTLET (37-LANGUAGE MEGA SUITE)
 # Proves that the `_dependency_capture` spawner accurately isolates EXACTLY
 # the imported file/module path across ALL supported languages, surviving
 # destructuring, aliases, and multi-line formatting without capturing the wrong variables.
-# ==============================================================================
+# =======================================================================
 DEPENDENCY_EXTRACTION_CASES = {
+    "ruby": {
+        "valid": [
+            ("require 'json'", "json"),
+            ("require_relative '../core/engine'", "../core/engine"),
+        ],
+        "invalid": ["required_fields = []"],
+        "pathological": [
+            (
+                'require_relative \n ( \n "../lib/massive_module" \n )',
+                "../lib/massive_module",
+            )
+        ],
+    },
     "php": {
         "valid": [
             (

@@ -1,8 +1,7 @@
 import pytest
 from gitgalaxy.standards.language_standards import LANGUAGE_DEFINITIONS
 
-# ==============================================================================
-# THE UNIVERSAL EXTRACTION GAUNTLET
+# =======================================================================# THE UNIVERSAL EXTRACTION GAUNTLET
 # Proves that the `func_start` spawner accurately isolates EXACTLY the function
 # name ("TargetFunc") across 32 distinct programming languages and architectures.
 #
@@ -11,9 +10,7 @@ from gitgalaxy.standards.language_standards import LANGUAGE_DEFINITIONS
 #     "valid": [ ("Payload String", "Expected Extracted Name") ],
 #     "invalid": [ "Strings that look like functions but MUST NOT match" ]
 # }
-# ==============================================================================
-# ==============================================================================
-# THE UNIVERSAL EXTRACTION GAUNTLET
+# =======================================================================# =======================================================================# THE UNIVERSAL EXTRACTION GAUNTLET
 # Proves that the `func_start` spawner accurately isolates EXACTLY the function
 # name ("TargetFunc") across 32 distinct programming languages and architectures.
 #
@@ -23,8 +20,20 @@ from gitgalaxy.standards.language_standards import LANGUAGE_DEFINITIONS
 #     "invalid": [ "Strings that look like functions but MUST NOT match" ],
 #     "pathological": [ "Frankenstein formatting designed to break the regex" ]
 # }
-# ==============================================================================
+# =======================================================================
 EXTRACTION_CASES = {
+    "ruby": {
+        "valid": [
+            ("def TargetFunc", "TargetFunc"),
+            ("def self.TargetFunc", "TargetFunc"),
+            ("define_method :TargetFunc do", "TargetFunc"),
+        ],
+        "invalid": ["class TargetFunc", "TargetFunc = 5", "module TargetFunc"],
+        "pathological": [
+            # Vertical class-method declaration
+            ("def \n self. \n TargetFunc \n (", "TargetFunc")
+        ],
+    },
     "php": {
         "valid": [
             ("function TargetFunc()", "TargetFunc"),

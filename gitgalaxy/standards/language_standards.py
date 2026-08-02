@@ -3344,8 +3344,8 @@ LANGUAGE_DEFINITIONS: dict[str, Any] = {
             # 2. args (Parameters / Coupling)
             # Signatures for functions and arrow functions. Bounded to prevent ReDoS.
             "args": re.compile(
-                r"\b(?:function|fn)\s*(?:&\s*)?[a-zA-Z_\x80-\xff][a-zA-Z0-9_\x80-\xff]*\s*\([^)]*\)|\bfunction\s*\([^)]*\)|fn\s*\([^)]*\)[ \t]*=>",
-                re.M,
+                r"\b(?:function|fn)[ \t\n]*(?:&[ \t\n]*)?(?:/\*.*?\*/[ \t\n]*){0,3}(?:[a-zA-Z_\x80-\xff][a-zA-Z0-9_\x80-\xff]*[ \t\n]*)?\((?:(?:[^()\'\"]|'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")|\((?:(?:[^()\'\"]|'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")|\((?:[^()\'\"]|'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")*\))*\))*\)",
+                re.M | re.I,
             ),
             # 3. linear (Sequential Boundaries)
             # Structural boundaries. EXCLUDES: Access modifiers (encapsulation) and const/readonly (freeze_hits).
@@ -3353,14 +3353,15 @@ LANGUAGE_DEFINITIONS: dict[str, Any] = {
                 r"\b(namespace|use|class|interface|trait|enum|function|return|yield|declare|require|require_once|include|include_once|as|implements|extends|clone|new)\b"
             ),
             "func_start": re.compile(
-                r"(?:^|[^a-zA-Z0-9_])(?:#\[[^\]]*\][ \t]*){0,5}"
-                r"(?:(?:public(?:\s*\(\s*set\s*\))?|protected(?:\s*\(\s*set\s*\))?|private(?:\s*\(\s*set\s*\))?|static|final|abstract|readonly)[ \t]+){0,5}"
-                r"function\s+(?:&\s*)?([a-zA-Z_\x80-\xff][a-zA-Z0-9_\x80-\xff]*)(?=\s*\()",
-                re.M,
+                r"(?:^|[^a-zA-Z0-9_])(?:#\[(?:[^\]\'\"]|'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")*\][ \t\n]*){0,10}"
+                r"(?:(?:public|protected|private|static|final|abstract)[ \t\n]+){0,5}"
+                r"function[ \t\n]+(?:&[ \t\n]*)?(?:/\*.*?\*/[ \t\n]*){0,3}([a-zA-Z_\x80-\xff][a-zA-Z0-9_\x80-\xff]*)[ \t\n]*(?=\()",
+                re.M | re.I,
             ),
             "class_start": re.compile(
-                r"^[ \t]*(?:#\[[^\]]*\][ \t]*){0,5}(?:(?:abstract|final|readonly)[ \t]+){0,3}(?:class|interface|trait|enum)\s+([a-zA-Z_\x80-\xff][a-zA-Z0-9_\x80-\xff]*)(?:\s+(?:extends|implements)\s+([a-zA-Z_\x80-\xff][a-zA-Z0-9_\x80-\xff\\]*))?",
-                re.M,
+                r"^[ \t]*(?:#\[(?:[^\]\'\"]|'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\")*\][ \t\n]*){0,10}"
+                r"(?:(?:abstract|final|readonly)[ \t\n]+){0,3}(?:class|interface|trait|enum)[ \t\n]+(?:/\*.*?\*/[ \t\n]*){0,3}([a-zA-Z_\x80-\xff][a-zA-Z0-9_\x80-\xff]*)(?![a-zA-Z0-9_\x80-\xff])",
+                re.M | re.I,
             ),
             # --- PHASE 2: RISK & STRUCTURAL INTEGRITY ---
             # 6. safety (Defensive Programming / Validation)
@@ -3445,7 +3446,7 @@ LANGUAGE_DEFINITIONS: dict[str, Any] = {
             # (all non-word). All 4 of PHP's most common superglobal
             # accesses never matched at all. `$` is unambiguous as a
             # start anchor on its own; no leading \b was needed.
-            "globals": re.compile(r"(?:\$_SERVER|\$_SESSION|\$_ENV|\$GLOBALS)\b|\bglobal\s+\$"),
+            "globals": re.compile(r"(?:\$_SERVER|\$_SESSION|\$_ENV|\$GLOBALS)\b|\bglobal\s+\$", re.I),
             # 19. decorators (Decorators / Annotations)
             # BUG FIX (ReDoS): `[a-zA-Z0-9_:\\]+` and `[^\]]*` are two
             # adjacent unbounded quantifiers matching an overlapping
@@ -3501,8 +3502,8 @@ LANGUAGE_DEFINITIONS: dict[str, Any] = {
                 # PHP allows `require 'file.php'` and `require('file.php')`. The `\(?` safely
                 # bridges both syntaxes while capturing the target path.
                 # =====================================================================
-                r"\b(?:use[ \t\n]+(?:function[ \t\n]+|const[ \t\n]+)?([\w\\]+)|(?:require|require_once|include|include_once)[ \t\n]*\(?[ \t\n]*['\"]([^'\"]+)['\"])",
-                re.M,
+                r"\b(?:use[ \t\n]+(?:function[ \t\n]+|const[ \t\n]+)?([a-zA-Z0-9_\\]+(?:[ \t\n]*(?:as[ \t\n]+|[,{])[a-zA-Z0-9_\\ \t\n{},]+?)?)[ \t\n]*;|(?:require|require_once|include|include_once)[ \t\n]*\(?[ \t\n]*(?:['\"]([^'\"]+)['\"]|([^;]+?)[ \t\n]*(?=\)?\s*;)))",
+                re.M | re.I,
             ),
             # 25. ownership (Authorship Metadata)
             "ownership": re.compile(r"@(?:author|copyright)\s+(.*)|(?:Created by|Maintainer):?\s+(.*)", re.I),
@@ -8630,8 +8631,8 @@ LANGUAGE_DEFINITIONS: dict[str, Any] = {
             "func_start": re.compile(
                 r"^[ \t]*(?:@[a-zA-Z_$][\w$]*(?:\([^)]*\))?[ \t\n]*){0,5}"
                 r"(?:(?:static|external|abstract|covariant|late)[ \t\n]+){0,5}"
-                r"(?!(?:[\w<>\[\], \t\n?(){}]{1,100}?[ \t\n]+)?(?:class|mixin|enum|extension|typedef|if|for|while|switch|catch)\b)"
-                r"(?:[\w<>\[\], \t\n?(){}]{1,100}?[ \t\n]+)?"
+                r"(?!(?:(?:[\w<>\[\],?(){}]+[ \t\n]+){0,5}?)(?:class|mixin|enum|extension|typedef|if|for|while|switch|catch)\b)"
+                r"(?:(?:[\w<>\[\],?(){}]+[ \t\n]+){0,5}?)"
                 r"(?!(?:class|mixin|enum|extension|typedef|if|for|while|switch|catch|Function)\b)"
                 r"(?:(?:get|set|factory)[ \t\n]+)?((?:[a-zA-Z_]\w*\.)?[a-zA-Z_]\w*|operator[ \t\n]+[^\s\w]+)(?=[ \t\n]*(?:<[^>]*>[ \t\n]*)?(?:\(|=>|\{|;))",
                 re.M,
