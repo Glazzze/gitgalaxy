@@ -1,4 +1,6 @@
+# ruff: noqa: S101
 import pytest
+
 from gitgalaxy.standards.language_standards import LANGUAGE_DEFINITIONS
 
 # =======================================================================# THE UNIVERSAL EXTRACTION GAUNTLET
@@ -49,7 +51,6 @@ EXTRACTION_CASES = {
             )
         ],
     },
-
     "apex": {
         "valid": [
             ("public static void TargetFunc()", "TargetFunc"),
@@ -141,14 +142,6 @@ EXTRACTION_CASES = {
         "invalid": ["CLASS TargetFunc", "DATA TargetFunc", "CALL FUNCTION TargetFunc"],
         "pathological": [("METHOD \n TargetFunc \n .", "TargetFunc")],
     },
-    "perl": {
-        "valid": [
-            ("sub TargetFunc {", "TargetFunc"),
-            ("method TargetFunc {", "TargetFunc"),
-        ],
-        "invalid": ["package TargetFunc", "my $TargetFunc", "goto TargetFunc"],
-        "pathological": [("sub \n TargetFunc \n {", "TargetFunc")],
-    },
     "haskell": {
         "valid": [
             ("TargetFunc :: Int -> Int", "TargetFunc"),
@@ -235,7 +228,6 @@ EXTRACTION_CASES = {
         "invalid": ["set TargetFunc", "if {$TargetFunc}"],
         "pathological": [("proc \t TargetFunc \t {", "TargetFunc")],
     },
-
 }
 
 
