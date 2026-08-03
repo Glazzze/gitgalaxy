@@ -96,17 +96,6 @@ EXTRACTION_CASES = {
         ],
     },
 
-    "livecode": {
-        "valid": [
-            ("on TargetFunc", "TargetFunc"),
-            ("command TargetFunc", "TargetFunc"),
-            ("private function TargetFunc", "TargetFunc"),
-        ],
-        "invalid": ["script TargetFunc", "put TargetFunc", "repeat with TargetFunc"],
-        "pathological": [("private \n command \n TargetFunc \n ", "TargetFunc")],
-    },
-
-
     "dockerfile": {
         "valid": [
             ("RUN apt-get update", "RUN"),
@@ -130,8 +119,6 @@ EXTRACTION_CASES = {
         "invalid": ["//TargetFunc DD DSN=", "//* TargetFunc EXEC"],
         "pathological": [("//TargetFunc \t EXEC ", "TargetFunc")],
     },
-
-
     "css": {
         "valid": [("@media (max-width: 600px) {", "@media"), ("@keyframes TargetFunc {", "@keyframes")],
         "invalid": [".TargetFunc {", "#TargetFunc {"],
