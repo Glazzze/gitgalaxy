@@ -29,11 +29,24 @@ RUBY_RULES = LANGUAGE_DEFINITIONS["ruby"]["rules"]
 
 _RUBY_SIMPLE_CASES = [
     # (signature, positive snippet, text expected to NOT match / None to skip)
-    ("branch", "if x then", "if_enabled = compute_value"),
+    # Deepened cases (Issue #1074)
+    ("branch", "if x then", "x = 1"),
+    ("branch", "elsif x == 2", "x = 2"),
+    ("branch", "case type\nwhen 1", "type = 1"),
+    
     ("args", "def foo(x, y)", "foo(x, y)"),
+    ("args", "def self.process(*args, **kwargs)", "process(*args, **kwargs)"),
+    ("args", "define_method(:foo) do |x, y|", "define_method"),
+    
+    ("func_start", "def foo", "foo = 1"),
+    ("func_start", "def self.bar", "self.bar = 1"),
+    ("func_start", "define_method :baz do", "baz"),
+    
+    ("class_start", "class Foo", "Foo = Class.new"),
+    ("class_start", "module MyMod", "MyMod = Module.new"),
+    ("class_start", "class << self", "self.class"),
+
     ("structural_boundaries", "require 'json'", "superclass = Foo"),
-    ("func_start", "def foo", "foo()"),
-    ("class_start", "class Foo", "obj = Class.new"),
     ("safety", "rescue => e", "obj.fetch_all"),
     ("safety_bypasses", "eval(code)", "evaluate_expression(x)"),
     ("high_risk_execution", 'exec("ls")', "executable_path = '/usr/bin/ruby'"),
