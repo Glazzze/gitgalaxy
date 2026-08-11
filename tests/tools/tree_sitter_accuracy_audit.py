@@ -28,6 +28,18 @@ USAGE
         purpose -- unlike the self-scan DB, this is meant to accumulate across
         runs so it can be graphed over time). Never touches the gating
         baseline files -- only --regenerate does that, and only per language.
+    python tests/tools/tree_sitter_accuracy_audit.py --chart
+        Renders the most recent --history run (the batch sharing the latest
+        timestamp_utc in the CSV) as docs/self_scan/tree_sitter_accuracy_chart.svg
+        -- a small-multiples bar chart, five independent metric panels (func
+        recall/precision, class recall/precision, args exact-match), each ranked by
+        its OWN value (best at top, N/A at the bottom -- not rankable as a score).
+        Bar fill is a red(low)->blue(high) hue-sweep keyed to that bar's value.
+        Includes python via NODE_MAPS like every other language now (see that
+        entry's own comment: this is for --chart/--history uniformity only --
+        tests/ast_accuracy_audit.py's stdlib `ast` ground truth remains the actual
+        CI gate for python's accuracy, unchanged). Reads the CSV only -- does not
+        itself run a live scan, so run --history first for fresh numbers.
 
 CORPUS
     Unlike ast_accuracy_audit.py which pins this repo's own code via git archive,
@@ -257,6 +269,15 @@ NODE_MAPS = {
         "func_node_types": {"method_declaration"},
         "class_node_types": {"class_declaration"},
     },
+    "python": {
+        "ts_lang": "python",
+        # Not the gating measurement for python's own accuracy -- tests/ast_accuracy_audit.py's
+        # stdlib `ast` ground truth is strictly better for this one language and remains the CI
+        # gate. This entry exists so python flows through the same --history/--chart pipeline as
+        # every other language uniformly, rather than a special one-off merge from a second file.
+        "func_node_types": {"function_definition"},
+        "class_node_types": {"class_definition"},
+    },
     "fortran": {
         "ts_lang": "fortran",
         # The wrapper node types (subroutine/function/module/...) don't reliably form on this
@@ -299,8 +320,6 @@ NODE_MAPS = {
 # a grammar for, but that are deliberately NOT in NODE_MAPS above -- listed here so the gap reads
 # as a decision, not an oversight, the next time someone reconciles this list against
 # LANGUAGE_DEFINITIONS:
-#   - python: already covered by tests/ast_accuracy_audit.py via the stdlib `ast` module, a
-#     strictly better ground truth than tree-sitter for this one language -- no need to duplicate.
 #   - cobol: tree-sitter-cobol's grammar returns ~100% ERROR nodes on the language-crucible corpus
 #     (confirmed on a real-file sample) AND is pathologically slow doing it (one corpus walk spun
 #     at 100% CPU for 5+ minutes and was killed) -- both a data-quality and a CI-budget blocker.
@@ -869,6 +888,232 @@ def run_history() -> int:
     return 0
 
 
+# ----------------------------------------------------------------------------
+# --chart: render the most recent --history run as a small-multiples SVG bar
+# chart, reading only the accumulated CSV (no live scan, no corpus needed).
+# ----------------------------------------------------------------------------
+
+_CHART_PATH = REPO_ROOT / "docs" / "self_scan" / "tree_sitter_accuracy_chart.svg"
+_CHART_METRICS = (
+    ("func_recall_pct", "Func Recall"),
+    ("func_precision_pct", "Func Precision"),
+    ("class_recall_pct", "Class Recall"),
+    ("class_precision_pct", "Class Precision"),
+    # Args has only one ratio in the data (exact-match), not a recall/precision pair -- labeled
+    # distinctly rather than forced into that framing.
+    ("args_match_pct", "Args Exact-Match"),
+)
+
+# Bar fill is now a value-driven red(low)->blue(high) hue-sweep LUT (see _rainbow_hex), a
+# deliberate request overriding the dataviz skill's own default ("never a rainbow" -- rainbow
+# LUTs aren't perceptually uniform and are hard on CVD readers). Kept to ONE fixed hex per value
+# rather than separate light/dark variants -- 150+ unique data-driven colors made a real per-mode
+# LUT impractical, so saturation/lightness were picked to read reasonably on both surfaces
+# instead. Everything else (text, surface, stripes, axis) stays properly theme-aware.
+_CHART_STYLE = """<style><![CDATA[
+  /* No CSS custom properties -- some SVG renderers in the docs pipeline (confirmed: Inkscape's
+     CSS parser) don't support var()/nested :root under @media, and silently fail to parse the
+     whole block rather than degrading gracefully. Plain class redeclarations under the media
+     query are more portable and render identically in real browsers. CDATA-wrapped because this
+     text otherwise contains a literal "style" tag-like substring that trips strict XML parsers
+     (confirmed: Inkscape read it as a nested element and broke tag matching). */
+  .surface { fill: #fcfcfb; }
+  .title { fill: #0b0b0b; font-weight: 600; font-size: 15px; }
+  .subtitle { fill: #52514e; font-size: 11px; }
+  .legend-label { fill: #52514e; font-size: 10px; }
+  .col-title { fill: #0b0b0b; font-weight: 600; font-size: 11px; }
+  .row-label { fill: #0b0b0b; font-size: 11px; }
+  .value-label { fill: #52514e; font-size: 10px; font-variant-numeric: tabular-nums; }
+  .na-dash { fill: #52514e; font-size: 10px; opacity: 0.55; }
+  .stripe { fill: #f1f0ed; }
+  .axis { stroke: #e4e2dd; stroke-width: 1; }
+  .footer { fill: #52514e; font-size: 9px; }
+  @media (prefers-color-scheme: dark) {
+    .surface { fill: #1a1a19; }
+    .title { fill: #ffffff; }
+    .subtitle { fill: #c3c2b7; }
+    .legend-label { fill: #c3c2b7; }
+    .col-title { fill: #ffffff; }
+    .row-label { fill: #ffffff; }
+    .value-label { fill: #c3c2b7; }
+    .na-dash { fill: #c3c2b7; }
+    .stripe { fill: #242422; }
+    .axis { stroke: #33322f; }
+    .footer { fill: #c3c2b7; }
+  }
+]]></style>
+"""
+
+
+def _hsl_to_hex(h: float, s: float, lightness: float) -> str:
+    h = (h % 360.0) / 360.0
+
+    def hue_to_rgb(p: float, q: float, t: float) -> float:
+        t = t % 1.0
+        if t < 1 / 6:
+            return p + (q - p) * 6 * t
+        if t < 1 / 2:
+            return q
+        if t < 2 / 3:
+            return p + (q - p) * (2 / 3 - t) * 6
+        return p
+
+    if s == 0:
+        r = g = b = lightness
+    else:
+        q = lightness * (1 + s) if lightness < 0.5 else lightness + s - lightness * s
+        p = 2 * lightness - q
+        r = hue_to_rgb(p, q, h + 1 / 3)
+        g = hue_to_rgb(p, q, h)
+        b = hue_to_rgb(p, q, h - 1 / 3)
+    return f"#{round(r * 255):02x}{round(g * 255):02x}{round(b * 255):02x}"
+
+
+def _rainbow_hex(value: float) -> str:
+    """0 -> red, 100 -> blue, sweeping through orange/yellow/green/cyan in between (HSL hue
+    0deg->240deg). Fixed saturation/lightness -- see _CHART_STYLE's comment on why this is one
+    LUT shared by both display modes rather than a light/dark pair."""
+    hue = max(0.0, min(100.0, value)) / 100.0 * 240.0
+    return _hsl_to_hex(hue, 0.68, 0.50)
+
+
+def _rainbow_gradient_defs(stops: int = 13) -> str:
+    stops_svg = "".join(
+        f'<stop offset="{i / (stops - 1) * 100:.1f}%" stop-color="{_rainbow_hex(i / (stops - 1) * 100)}"/>'
+        for i in range(stops)
+    )
+    return f'<linearGradient id="rainbow-legend" x1="0%" y1="0%" x2="100%" y2="0%">{stops_svg}</linearGradient>'
+
+
+def _load_latest_history_batch() -> tuple[str, str, dict[str, dict[str, Optional[float]]]]:
+    """Returns (timestamp_utc, commit_sha, {lang: {metric_key: value_or_None}}) for the most
+    recent batch -- the rows sharing the max timestamp_utc -- in the history CSV."""
+    if not _HISTORY_PATH.exists():
+        sys.exit(
+            f"tree_sitter_accuracy_audit: {_HISTORY_PATH.relative_to(REPO_ROOT)} doesn't exist yet -- run --history first."
+        )
+    with open(_HISTORY_PATH, encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    if not rows:
+        sys.exit(f"tree_sitter_accuracy_audit: {_HISTORY_PATH.relative_to(REPO_ROOT)} is empty.")
+
+    latest_ts = max(row["timestamp_utc"] for row in rows)
+    latest_rows = [row for row in rows if row["timestamp_utc"] == latest_ts]
+    commit_sha = latest_rows[0]["commit_sha"]
+
+    def _f(s: str) -> Optional[float]:
+        return float(s) if s else None
+
+    data: dict[str, dict[str, Optional[float]]] = {}
+    for row in latest_rows:
+        data[row["language"]] = {
+            "func_recall_pct": _f(row["func_recall_pct"]),
+            "func_precision_pct": _f(row["func_precision_pct"]),
+            "class_recall_pct": _f(row["class_recall_pct"]),
+            "class_precision_pct": _f(row["class_precision_pct"]),
+            "args_match_pct": _ratio_pct(int(row["args_exact_match"]), int(row["args_comparable"])),
+        }
+    return latest_ts, commit_sha, data
+
+
+def generate_chart_svg() -> str:
+    """Small multiples: one independent panel per metric in _CHART_METRICS, each with its OWN
+    label column -- each panel is ranked by its own value, best at top, worst at bottom, so row
+    order legitimately differs panel to panel (unlike the original shared-label-column design,
+    which required one common order across all five). N/A (no ground-truth instances for that
+    language) can't be ranked against a real score, so it sorts as its own alphabetical group
+    below every real value, not scored as 0%. Bar fill is a red(low)->blue(high) hue-sweep LUT
+    keyed to that bar's own value (see _rainbow_hex) -- color and position both encode magnitude
+    here, a deliberate redundancy the requester wanted."""
+    timestamp, commit_sha, data = _load_latest_history_batch()
+    langs_all = sorted(data.keys())
+    n = len(langs_all)
+
+    label_col_w = 88
+    bar_col_w = 130
+    panel_gap = 28
+    row_h = 15
+    bar_h = 9
+    header_h = 34
+    top_margin = 64  # extra headroom under the title for the color-scale legend
+    bottom_margin = 34
+    left_margin = 16
+    right_margin = 16
+    bar_max_w = bar_col_w - 42  # leaves room for the value label riding the bar's tip
+
+    panel_w = label_col_w + bar_col_w
+    n_panels = len(_CHART_METRICS)
+    width = left_margin + n_panels * panel_w + (n_panels - 1) * panel_gap + right_margin
+    height = top_margin + header_h + n * row_h + bottom_margin
+    rows_top = top_margin + header_h
+
+    parts: list[str] = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" '
+        f'width="{width}" height="{height}" font-family="system-ui, -apple-system, Segoe UI, sans-serif">',
+        _CHART_STYLE,
+        f"<defs>{_rainbow_gradient_defs()}</defs>",
+        f'<rect class="surface" x="0" y="0" width="{width}" height="{height}"/>',
+        f'<text class="title" x="{left_margin}" y="20">Tree-sitter Accuracy by Language -- Most Recent Run</text>',
+        f'<text class="subtitle" x="{left_margin}" y="36">{timestamp} &#183; commit {commit_sha[:7]} &#183; '
+        f"{n} languages &#183; source: docs/self_scan/tree_sitter_accuracy_history.csv</text>",
+        f'<rect x="{left_margin}" y="44" width="140" height="8" rx="2" fill="url(#rainbow-legend)"/>',
+        f'<text class="legend-label" x="{left_margin}" y="60">0%</text>',
+        f'<text class="legend-label" x="{left_margin + 140}" y="60" text-anchor="end">100% (bar color = value)</text>',
+    ]
+
+    for j, (key, title) in enumerate(_CHART_METRICS):
+        panel_x = left_margin + j * (panel_w + panel_gap)
+        label_x = panel_x + label_col_w - 8
+        col_x = panel_x + label_col_w
+
+        with_value = sorted(
+            ((lang, data[lang][key]) for lang in langs_all if data[lang][key] is not None),
+            key=lambda pair: pair[1],
+            reverse=True,
+        )
+        without_value = sorted(lang for lang in langs_all if data[lang][key] is None)
+        ordered: list[tuple[str, Optional[float]]] = with_value + [(lang, None) for lang in without_value]
+
+        parts.append(f'<text class="col-title" x="{col_x}" y="{top_margin + header_h - 12}">{title}</text>')
+        parts.append(f'<line class="axis" x1="{col_x}" y1="{rows_top}" x2="{col_x}" y2="{rows_top + n * row_h}"/>')
+
+        for i, (lang, value) in enumerate(ordered):
+            row_y = rows_top + i * row_h
+            if i % 2 == 1:
+                parts.append(f'<rect class="stripe" x="{panel_x}" y="{row_y}" width="{panel_w}" height="{row_h}"/>')
+
+            label_y = row_y + row_h / 2 + 3.5
+            parts.append(f'<text class="row-label" x="{label_x}" y="{label_y:.1f}" text-anchor="end">{lang}</text>')
+
+            if value is None:
+                parts.append(f'<text class="na-dash" x="{col_x + 6}" y="{label_y:.1f}">n/a</text>')
+                continue
+            bar_w = max(1.5, (value / 100.0) * bar_max_w)
+            bar_y = row_y + (row_h - bar_h) / 2
+            parts.append(
+                f'<rect x="{col_x}" y="{bar_y:.1f}" width="{bar_w:.1f}" height="{bar_h}" rx="3" '
+                f'fill="{_rainbow_hex(value)}"/>'
+            )
+            parts.append(f'<text class="value-label" x="{col_x + bar_w + 5:.1f}" y="{label_y:.1f}">{value:.0f}%</text>')
+
+    parts.append(
+        f'<text class="footer" x="{left_margin}" y="{height - 8}">Generated by '
+        f"tests/tools/tree_sitter_accuracy_audit.py --chart. Each panel is ranked independently, best "
+        f'at top; "n/a" (no ground-truth instances for that language) sorts to the bottom, not scored '
+        f"as 0%.</text>"
+    )
+    parts.append("</svg>")
+    return "\n".join(parts)
+
+
+def run_chart() -> int:
+    svg = generate_chart_svg()
+    _CHART_PATH.parent.mkdir(parents=True, exist_ok=True)
+    _CHART_PATH.write_text(svg, encoding="utf-8")
+    print(f"tree_sitter_accuracy_audit: wrote {_CHART_PATH.relative_to(REPO_ROOT)}.")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--lang", help="Language to audit (e.g. javascript). Omit when using --all.")
@@ -888,12 +1133,19 @@ def main() -> int:
         action="store_true",
         help="Append current measured metrics for every baselined language to the history CSV. Ignores --lang.",
     )
+    group.add_argument(
+        "--chart",
+        action="store_true",
+        help="Render the most recent --history batch as an SVG bar chart. Ignores --lang/--all, no live scan.",
+    )
     args = parser.parse_args()
 
     if args.summary_table:
         return run_summary_table()
     if args.history:
         return run_history()
+    if args.chart:
+        return run_chart()
 
     if bool(args.lang) == bool(args.all):
         parser.error("exactly one of --lang or --all is required")
