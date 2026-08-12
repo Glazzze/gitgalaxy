@@ -2108,15 +2108,7 @@ class StructuralExtractor:
             # bare `;` terminator as rust's bodyless trait methods were in #1319 -- and this shape
             # is the ENTIRE public surface of every objc header, not an edge case (confirmed via
             # language-crucible/data/objective-c/worldwideweb/HyperText.h: 38 of 38 real interface
-            # methods were silently dropped here pre-fix, 0 recall on that file). Group 2 does NOT
-            # get the same treatment: unlike rust's `fn`-anchored alternative, it has no exclusion
-            # shield and can already match a bare two-token call/return statement (`return
-            # foo(x);`, `self doSomething(x);`) -- currently harmless only because the brace-only
-            # path below silently drops it when no `{` follows. Accepting `;` there too would
-            # resurrect that latent false-positive class, so group 2 keeps the original
-            # brace-only behavior. No `(`/`)`-depth tracking pitfall like rust's `[u8; 32]` case:
-            # a method's `:(Type)name` segments never contain a literal `;` or top-level `{` of
-            # their own, so depth-0 is exactly "outside any parameter's parenthesized type".
+            # methods were silently dropped here pre-fix, 0 recall on that file).
             elif lang_id == "objective-c" and match.group(1) is not None:
                 pos = match.end()
                 depth = 0
@@ -2137,6 +2129,42 @@ class StructuralExtractor:
                     end_idx = term_idx + 1
                 else:
                     continue  # neither a body nor a bodyless `;` terminator ever showed up in the window
+            # #1336: group 2 (plain C-style prototypes, e.g. `extern void
+            # write_rtf_header(NXStream* rtfStream);`) does NOT get group 1's bodyless-`;`
+            # treatment -- unlike group 1's method form, a prototype has no function body to
+            # score at all (no executable logic, nothing for `branch`/`io`/etc. to fire inside),
+            # so it's out of scope for `func_start` entirely rather than a recall gap to close.
+            # The generic brace-only fallback below (the final `else`) used to "accept" these
+            # anyway whenever some unrelated `{` happened to appear later in its bounded search
+            # window -- typically a nearby `@interface` block's own ivar-list braces -- and
+            # silently attribute that block's whole span as the prototype's "body" (the actual
+            # #1336 bug: a real prototype found *only* by accident, with a bogus body/LOC).
+            # Fixed by explicitly detecting the bodyless-`;` case here and rejecting it outright,
+            # rather than falling through to the blind forward `{` search. A real function
+            # definition (`static inline void c_style_func(int a, float b) { ... }`) is
+            # unaffected: its own `{` always arrives before any `;`, so it still reaches the
+            # `brace` branch below unchanged. The regex itself (language_standards.py) now also
+            # carries a "not a function" keyword shield mirroring `branch`'s own control-flow
+            # keyword set, so a bare call/return statement (`return foo(x);`) -- which could
+            # already match this alternative's lenient (type-token)+ loop -- can no longer reach
+            # this branch at all; every match landing here is a real declaration or definition.
+            elif lang_id == "objective-c" and match.group(2) is not None:
+                pos = match.end()
+                depth = 0
+                term_idx, term_kind = -1, None
+                while pos < search_limit:
+                    ch = safe_code[pos]
+                    if ch == "(":
+                        depth += 1
+                    elif ch == ")":
+                        depth = max(0, depth - 1)
+                    elif depth == 0 and ch in (opener, ";"):
+                        term_idx, term_kind = pos, ("brace" if ch == opener else "semi")
+                        break
+                    pos += 1
+                if term_kind != "brace":
+                    continue  # a bodyless prototype (or neither terminator in the window) -- out of func_start's scope
+                end_idx = self._find_balanced_end(safe_code, term_idx, opener, closer)
             else:
                 brace_idx = safe_code.find(opener, start_idx, search_limit)
                 if brace_idx == -1:

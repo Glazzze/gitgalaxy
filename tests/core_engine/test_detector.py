@@ -2457,6 +2457,85 @@ def test_objectivec_bodyless_interface_declarations_extracted():
         assert found[name] == expected_args, f"{name}: expected args={expected_args}, got args={found[name]}"
 
 
+def test_objectivec_bodyless_c_style_prototype_excluded_not_misattributed():
+    """
+    #1336: a plain C-style prototype (`extern void write_rtf_header(NXStream*
+    rtfStream);`) has no function body to score -- unlike group 1's `-`/`+`
+    method alternative (a real recall gap closed in #1314's follow-up), this
+    is out of func_start's scope entirely, matching how the tree-sitter
+    ground truth (a bare `declaration` node, not `function_definition`)
+    doesn't count it as a real function either. Pre-fix, it was still
+    matched by accident whenever a `{` happened to appear later in the
+    bounded search window, and the `{...}` it grabbed belonged to unrelated
+    code (in the corpus case, an `@interface` block's own ivar list several
+    lines later) -- giving a phantom function a bogus body span. Fixed by
+    detecting the bodyless-`;` case explicitly and rejecting it, rather than
+    falling through to a blind forward `{` search. Reproduces the exact
+    shape of language-crucible/data/objective-c/worldwideweb/HyperText.h.
+    """
+    from gitgalaxy.standards.language_standards import LANGUAGE_DEFINITIONS
+
+    code = (
+        "extern void write_rtf_header(NXStream* rtfStream);\n"
+        "extern HyperAccess * HTAccMgr;\n"
+        "\n"
+        "@interface HyperText:Text\n"
+        "{\n"
+        "    int slotNumber;\n"
+        "}\n"
+        "@end\n"
+    )
+    detector = StructuralExtractor("objective-c", LANGUAGE_DEFINITIONS)
+    result = detector.splice(code, "", raw_content=code)
+
+    found = {fn["name"] for fn in result.get("functions", [])}
+    assert "write_rtf_header" not in found, (
+        "bodyless C-style prototype should be excluded from func_start, not misattributed a body"
+    )
+
+
+def test_objectivec_c_style_real_definition_still_extracted():
+    """
+    #1336 companion: excluding bodyless C-style prototypes must not regress
+    real C-style function *definitions* (which do have a `{...}` body) --
+    those still reach the `brace` branch in `_slice_by_braces`'s objc
+    handling unchanged, since their own `{` always arrives before any `;`.
+    """
+    from gitgalaxy.standards.language_standards import LANGUAGE_DEFINITIONS
+
+    code = "static inline void c_style_func(int a, float b) {\n    return;\n}\n"
+    detector = StructuralExtractor("objective-c", LANGUAGE_DEFINITIONS)
+    result = detector.splice(code, "", raw_content=code)
+
+    found = {fn["name"]: fn["args"] for fn in result.get("functions", [])}
+    assert "c_style_func" in found, "real C-style function definition should still be extracted"
+    assert found["c_style_func"] == 2, f"expected args=2, got args={found['c_style_func']}"
+
+
+def test_objectivec_c_style_bare_statement_not_misidentified_as_function():
+    """
+    #1336: a bare two-token call/return statement (`return foo(x);`) must not
+    be captured as a phantom function. Pre-fix this was "harmless" only
+    because detector.py's brace-only fallback happened to drop any match with
+    no `{` nearby -- a coincidence, not a guarantee (a distant unrelated `{`
+    could still resurrect it, the same accidental-attribution bug #1336 fixes
+    for real prototypes). Two independent layers now close this off: the
+    regex-level "not a function" keyword shield (language_standards.py)
+    prevents the match from happening at all, and even if it somehow did,
+    `_slice_by_braces`'s bodyless-`;` rejection for group 2 would still
+    refuse to attribute a body to it.
+    """
+    from gitgalaxy.standards.language_standards import LANGUAGE_DEFINITIONS
+
+    code = "- (int)computeSomething {\n    return computeValue(1, 2);\n}\n"
+    detector = StructuralExtractor("objective-c", LANGUAGE_DEFINITIONS)
+    result = detector.splice(code, "", raw_content=code)
+
+    found = {fn["name"] for fn in result.get("functions", [])}
+    assert "computeValue" not in found, "bare `return foo(x);` statement misidentified as a function"
+    assert "computeSomething" in found
+
+
 def test_count_haskell_type_arrows_helper():
     """
     Direct unit coverage for `_count_haskell_type_arrows`, the Haskell

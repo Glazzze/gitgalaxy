@@ -55,6 +55,18 @@ OBJECTIVEC_ADVERSARIAL_TESTS = {
             ("void* function_returning_pointer(char** arg) {", "function_returning_pointer"),
             ("NS_INLINE void inlineFunction(void) {", "inlineFunction"),
             ("__attribute__((always_inline)) void attrFunction(void) {", "attrFunction"),
+            # #1336: bodyless C-style prototypes (terminated by `;`, not `{...}`) --
+            # e.g. language-crucible/data/objective-c/worldwideweb/HyperText.h's
+            # `extern void write_rtf_header(NXStream* rtfStream);`. The regex still
+            # matches the name correctly here (it's syntactically function-shaped) --
+            # detector.py's pipeline is what now explicitly excludes these from
+            # func_start's scope (a prototype has no body to score), rather than the
+            # old behavior of finding them only by accident via a later, unrelated
+            # `{` and attributing that block's span as a bogus body. See
+            # test_objectivec_bodyless_c_style_prototype_excluded_not_misattributed
+            # in tests/core_engine/test_detector.py for the pipeline-level assertion.
+            ("extern void write_rtf_header(NXStream* rtfStream);", "write_rtf_header"),
+            ("static int helper_prototype(int x);", "helper_prototype"),
             ("- (std::vector<std::shared_ptr<MyNamespace::MyClass>>)getVector;", "getVector"),
             ("- (const std::map<std::string, std::vector<int>>&)getMap;", "getMap"),
             ("template <typename T> void cppTemplateFunction(T arg) {", "cppTemplateFunction"),
@@ -81,6 +93,18 @@ OBJECTIVEC_ADVERSARIAL_TESTS = {
             "for (int i = 0; i < 10; ++i) {",
             "WHILE_MACRO(x) {",
             "switch (x) {",
+            # #1336: the C-style alternative's identifier capture has no exclusion
+            # shield against bare two-token call/return statements (the leading word
+            # satisfies the loop as a fake "return type") -- these used to match at
+            # the regex level too, only ever staying harmless because detector.py's
+            # brace-only fallback silently dropped them when no `{` followed nearby.
+            # Now that detector.py accepts a bare `;` terminator for this
+            # alternative (mirroring the `-`/`+` method form), a "not a function"
+            # keyword shield in the regex itself must reject these outright.
+            "return foo(x);",
+            "return computeValue(a, b);",
+            "else doSomething(x);",
+            "goto cleanup(x);",
         ],
         "pathological": [
             ("- \n ( \n NSDictionary<NSString *, NSArray<NSNumber *> *> * \n ) \n TargetFunc \n :", "TargetFunc")
